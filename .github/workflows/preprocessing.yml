@@ -1,0 +1,104 @@
+name: Automated Preprocessing - Heart Failure
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'heart_raw/**'
+      - 'preprocessing/automate_DindaKrisnauliPakpahan.py'
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Alasan trigger manual'
+        required: false
+        default: 'Manual trigger preprocessing'
+
+jobs:
+  preprocessing:
+    name: Run Data Preprocessing
+    runs-on: ubuntu-latest
+
+    steps:
+  
+      # 1. Checkout repository
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      # 2. Setup Python
+      - name: Set Up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12.7'
+          cache: 'pip'
+
+      # 3. Install dependencies
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pandas numpy scikit-learn
+
+      # 4. Verifikasi dataset tersedia
+      - name: Check Raw Dataset Exists
+        run: |
+          if [ ! -f "heart_raw/heart.csv" ]; then
+            echo "❌ ERROR: heart_raw/heart.csv tidak ditemukan!"
+            echo "Pastikan file heart.csv sudah ada di folder heart_raw/"
+            exit 1
+          fi
+          echo "✅ Dataset ditemukan: heart_raw/heart.csv"
+          wc -l heart_raw/heart.csv
+
+      # 5. Jalankan preprocessing
+      - name: Run Preprocessing Script
+        run: |
+          cd preprocessing
+          python automate_DindaKrisnauliPakpahan.py \
+            --input ../heart_raw/heart.csv \
+            --output heart_preprocessing
+
+      # 6. Verifikasi output
+      - name: Verify Output Files
+        run: |
+          echo "=== Verifikasi Output ==="
+          if [ -f "preprocessing/heart_preprocessing/heart_train.csv" ]; then
+            echo "✅ heart_train.csv - $(wc -l < preprocessing/heart_preprocessing/heart_train.csv) baris"
+          else
+            echo "❌ heart_train.csv tidak ditemukan!"
+            exit 1
+          fi
+
+          if [ -f "preprocessing/heart_preprocessing/heart_test.csv" ]; then
+            echo "✅ heart_test.csv  - $(wc -l < preprocessing/heart_preprocessing/heart_test.csv) baris"
+          else
+            echo "❌ heart_test.csv tidak ditemukan!"
+            exit 1
+          fi
+
+          echo ""
+          echo "=== Preview heart_train.csv (5 baris pertama) ==="
+          head -6 preprocessing/heart_preprocessing/heart_train.csv
+
+      # 7. Upload hasil sebagai artifact
+      - name: Upload Preprocessed Dataset
+        uses: actions/upload-artifact@v4
+        with:
+          name: heart-preprocessed-${{ github.run_number }}
+          path: preprocessing/heart_preprocessing/
+          retention-days: 30
+
+      # 8. Commit & push hasil ke repository
+      - name: Commit Preprocessed Data to Repository
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Actions"
+
+          git add preprocessing/heart_preprocessing/
+
+          if git diff --staged --quiet; then
+            echo "ℹ️ Tidak ada perubahan pada dataset preprocessing."
+          else
+            git commit -m "ci: update preprocessed dataset [run #${{ github.run_number }}]"
+            git push
+            echo "✅ Preprocessed dataset berhasil di-push ke repository"
+          fi
